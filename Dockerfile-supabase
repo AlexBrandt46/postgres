@@ -10,8 +10,8 @@
 
 # Put all ARGs up top for better discoverability
 # Use non-versioned `ARG THE_ARG` in the layer that uses it to get the ref to this one
-ARG ALPINE_VERSION=3.23
-ARG GO_VERSION=1.26.1
+ARG ALPINE_VERSION=3.24
+ARG GO_VERSION=1.26.5
 ARG GOSU_VERSION=1.19
 ARG PG_VERSION=17
 
@@ -22,7 +22,7 @@ FROM alpine:${ALPINE_VERSION} AS nix-builder
 
 ARG PG_VERSION
 
-# Install dependencies for nix installer (coreutils for GNU cp, sudo for installer)
+# Install deps for nix installer (coreutils for GNU cp, sudo for installer)
 RUN apk add --no-cache \
     bash \
     coreutils \
@@ -31,7 +31,6 @@ RUN apk add --no-cache \
     sudo \
     xz
 
-# Create users (Alpine syntax)
 RUN addgroup -S postgres && \
     adduser -S -h /var/lib/postgresql -s /bin/bash -G postgres postgres && \
     addgroup -S wal-g && \
@@ -62,34 +61,34 @@ RUN nix profile add path:.#supabase-groonga && \
 
 RUN nix store gc
 
+RUN rm -rf /nix/store/pzd5zmfqgyh8858s4avpva6m47q854w2-supabase-groonga-14.0.5/share/groonga/html
+
 ####################
 # Stage 2: Gosu builder
 ####################
-FROM alpine:${ALPINE_VERSION} AS gosu-builder
-ARG TARGETARCH
-ARG GO_VERSION
+FROM golang:${GO_VERSION}-alpine${ALPINE_VERSION} AS gosu-builder
 ARG GOSU_VERSION
 
-RUN apk add --no-cache curl git
+RUN apk update && apk upgrade --no-cache && \
+    apk add --no-cache git
 
-# Install Go
-RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" | tar -C /usr/local -xz
-ENV PATH="/usr/local/go/bin:${PATH}"
+WORKDIR /gosu
 
 # Build gosu from source
-RUN git clone --depth 1 --branch "${GOSU_VERSION}" https://github.com/tianon/gosu.git /gosu && \
-    cd /gosu && \
+RUN git clone --depth 1 --branch "${GOSU_VERSION}" https://github.com/tianon/gosu.git . && \
+    go mod download && go get golang.org/x/sys@v0.44.0 && go mod tidy && \
     CGO_ENABLED=0 go build -ldflags="-s -w" -o /usr/local/bin/gosu . && \
     chmod +x /usr/local/bin/gosu
 
 ####################
 # Stage 3: Final production image
 ####################
-FROM alpine:${ALPINE_VERSION} AS production
+FROM alpine:20260805 AS production
 
+ARG ALPINE_VERSION
 ARG PG_VERSION
 
-# Install minimal runtime dependencies
+# Install minimal runtime deps
 RUN apk add --no-cache \
     bash \
     curl \
@@ -100,7 +99,6 @@ RUN apk add --no-cache \
     musl-locales-lang \
     && rm -rf /var/cache/apk/*
 
-# Create postgres user/group
 RUN addgroup -S postgres && \
     adduser -S -G postgres -h /var/lib/postgresql -s /bin/bash postgres && \
     addgroup -S wal-g && \
@@ -110,10 +108,8 @@ RUN addgroup -S postgres && \
 # Copy Nix store and profiles from builder (profile already created by nix profile install)
 COPY --from=nix-builder /nix /nix
 
-# Copy groonga plugins
 COPY --from=nix-builder /tmp/groonga-plugins/plugins /usr/lib/groonga/plugins
 
-# Copy gosu
 COPY --from=gosu-builder /usr/local/bin/gosu /usr/local/bin/gosu
 
 # Setup PostgreSQL directories
@@ -129,8 +125,8 @@ RUN mkdir -p /usr/lib/postgresql/bin \
 
 # Create symbolic links for binaries
 RUN for f in /nix/var/nix/profiles/default/bin/*; do \
-        ln -sf "$f" /usr/lib/postgresql/bin/ 2>/dev/null || true; \
-        ln -sf "$f" /usr/bin/ 2>/dev/null || true; \
+    ln -sf "$f" /usr/lib/postgresql/bin/ 2>/dev/null || true; \
+    ln -sf "$f" /usr/bin/ 2>/dev/null || true; \
     done
 
 # Create symbolic links for PostgreSQL shares
@@ -170,9 +166,9 @@ RUN sed -i \
 # pg17+ does not ship timescaledb or plv8; db_user_namespace was removed in pg17.
 # Applied conditionally so the same Dockerfile works for pg15 (where these are valid).
 RUN if [ "${PG_VERSION}" -ge 17 ]; then \
-        sed -i 's/ timescaledb,//g; s/ plv8,//g' /etc/postgresql/postgresql.conf && \
-        sed -i 's/db_user_namespace = off/#db_user_namespace = off/g' /etc/postgresql/postgresql.conf && \
-        sed -i 's/ timescaledb,//g; s/ plv8,//g' /etc/postgresql-custom/supautils.conf; \
+    sed -i 's/ timescaledb,//g; s/ plv8,//g' /etc/postgresql/postgresql.conf && \
+    sed -i 's/db_user_namespace = off/#db_user_namespace = off/g' /etc/postgresql/postgresql.conf && \
+    sed -i 's/ timescaledb,//g; s/ plv8,//g' /etc/postgresql-custom/supautils.conf; \
     fi
 
 # Include schema migrations
@@ -182,7 +178,7 @@ COPY ansible/files/stat_extension.sql /docker-entrypoint-initdb.d/migrations/00-
 
 # Add entrypoint script from the official postgres Docker library (version-matched)
 ADD --chmod=0755 \
-    https://raw.githubusercontent.com/docker-library/postgres/6edb0a8c4def40c371514b34aef9037ec82d9110/${PG_VERSION}/alpine3.23/docker-entrypoint.sh \
+    https://raw.githubusercontent.com/docker-library/postgres/62a714f93cc32220de46fd12235c9d509e3b1ad6/${PG_VERSION}/alpine${ALPINE_VERSION}/docker-entrypoint.sh \
     /usr/local/bin/docker-entrypoint.sh
 
 # Setup pgsodium key script
@@ -190,7 +186,6 @@ RUN mkdir -p /usr/share/postgresql/extension/ && \
     ln -s /usr/lib/postgresql/bin/pgsodium_getkey.sh /usr/share/postgresql/extension/pgsodium_getkey && \
     chmod +x /usr/lib/postgresql/bin/pgsodium_getkey.sh
 
-# Environment variables
 ENV PATH="/nix/var/nix/profiles/default/bin:/usr/lib/postgresql/bin:${PATH}"
 ENV PGDATA=/var/lib/postgresql/data
 ENV POSTGRES_HOST=/var/run/postgresql
