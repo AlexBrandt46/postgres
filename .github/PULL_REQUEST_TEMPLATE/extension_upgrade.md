@@ -10,9 +10,9 @@ Add any other context or screenshots.
 
 - [ ] **New extension releases** were Checked for any breaking changes
 - [ ] **Extensions compatibility** Checked
-    * Proceed to [extensions compatibility testing](#extensions-compatibility-testing), mark as done after everything is completed
+    - Proceed to [extensions compatibility testing](#extensions-compatibility-testing), mark as done after everything is completed
 - [ ] **Backup and Restore** Checked
-    * Proceed to [backup testing](#backup-testing) while extensions are enabled
+    - Proceed to [backup testing](#backup-testing) while extensions are enabled
         - After every restore, re-run the tests specified at point [3.1](#extensions-compatibility-testing)
 
 ### Extensions compatibility testing
@@ -39,9 +39,9 @@ Follow the testing steps steps for all the following cases:
 #### Testing steps
 
 1. Generate dummy data 
-    * the ‘Countries’ or ‘Slack clone’ SQL editor snippets are decent datasets to work with, albeit limited
+    - the ‘Countries’ or ‘Slack clone’ SQL editor snippets are decent datasets to work with, albeit limited
 2. Save a db stats snapshot file
-    * Do this by running `supa db-stats gather -p <project_ref>`
+    - Do this by running `supa db-stats gather -p <project_ref>`
 3. Backup the database, through pausing the project, or otherwise
 4. Restore the backup, through unpausing the project or cli
 5. Check the data has been recovered successfully
